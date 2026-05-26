@@ -276,9 +276,26 @@
             return `${months[date.getMonth()]} ${date.getFullYear()}`;
         };
 
+        const parseRobustDateGlobal = (dateStr) => {
+            if (!dateStr) return null;
+            const s = String(dateStr).trim();
+            if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+              const parts = s.split('-');
+              return { year: parseInt(parts[0]), month: parseInt(parts[1]) };
+            }
+            if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+              const parts = s.split('/');
+              return { year: parseInt(parts[2]), month: parseInt(parts[1]) };
+            }
+            const d = new Date(dateStr);
+            if (!isNaN(d.getTime())) return { year: d.getFullYear(), month: d.getMonth() + 1 };
+            return null;
+        };
+
         const getMonthYear = (dateStr) => {
-            const date = new Date(dateStr);
-            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            const parsed = parseRobustDateGlobal(dateStr);
+            if (!parsed) return '0000-00';
+            return `${parsed.year}-${String(parsed.month).padStart(2, '0')}`;
         };
 
         const getMonthShort = (dateStr) => {
@@ -521,6 +538,17 @@
                         Per Bulan
                       </button>
                       <button
+                        onClick={() => setCurrentView('quarterly')}
+                        className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all text-sm ${
+                          currentView === 'quarterly'
+                            ? 'bg-teal-600 text-white shadow-lg'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        <TrendingUp className="inline w-4 h-4 sm:w-5 sm:h-5 mr-1 sm:mr-2" />
+                        Per TW
+                      </button>
+                      <button
                         onClick={() => setCurrentView('input')}
                         className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all text-sm ${
                           currentView === 'input'
@@ -548,7 +576,7 @@
               </header>
 
               <main className="max-w-7xl mx-auto px-4 py-4 sm:py-8">
-                {loading && (currentView === 'dashboard' || currentView === 'monthly') ? (
+                {loading && (currentView === 'dashboard' || currentView === 'monthly' || currentView === 'quarterly') ? (
                   <div className="text-center py-12">
                     <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
                     <p className="mt-4 text-gray-600">Memuat data...</p>
@@ -566,6 +594,8 @@
                   />
                 ) : currentView === 'monthly' ? (
                   <MonthlyView audits={audits} />
+                ) : currentView === 'quarterly' ? (
+                  <QuarterlyView audits={audits} />
                 ) : currentView === 'input' ? (
                   <InputView onSave={saveAudit} onCancel={() => setCurrentView('dashboard')} />
                 ) : (
@@ -582,6 +612,297 @@
                   />
                 )}
               </main>
+            </div>
+          );
+        }
+
+        // ============================================================
+        // QUARTERLY VIEW - Rekapan per Triwulan
+        // ============================================================
+        function QuarterlyView({ audits }) {
+          const getQuarterLabel = (monthYear) => {
+            const [year, month] = monthYear.split('-').map(Number);
+            const q = Math.ceil(month / 3);
+            return `TW${q}-${year}`;
+          };
+
+          const parseRobustDate = (dateStr) => {
+            if (!dateStr) return null;
+            const s = String(dateStr).trim();
+            // Format YYYY-MM-DD (paling umum dari input)
+            if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+              const [year, month, day] = s.split('-').map(Number);
+              return { year, month, day };
+            }
+            // Format DD/MM/YYYY
+            if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+              const [day, month, year] = s.split('/').map(Number);
+              return { year, month, day };
+            }
+            // Fallback: coba new Date
+            const d = new Date(dateStr);
+            if (!isNaN(d.getTime())) {
+              return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
+            }
+            return null;
+          };
+
+          const getQuarterKey = (dateStr) => {
+            const parsed = parseRobustDate(dateStr);
+            if (!parsed) return 'unknown-TW0';
+            const { year, month } = parsed;
+            const q = Math.ceil(month / 3);
+            return `${year}-TW${q}`;
+          };
+
+          const groupByQuarter = () => {
+            const grouped = {};
+            audits.forEach(audit => {
+              const key = getQuarterKey(audit.date);
+              if (!grouped[key]) grouped[key] = [];
+              grouped[key].push(audit);
+            });
+            return grouped;
+          };
+
+          const momenLabels = [
+            'M1: Sebelum kontak pasien',
+            'M2: Sebelum prosedur bersih/aseptik',
+            'M3: Setelah cairan tubuh',
+            'M4: Setelah kontak pasien',
+            'M5: Setelah kontak lingkungan'
+          ];
+
+          const calculateQuarterStats = (qAudits) => {
+            let totalOpportunities = 0;
+            let totalCompliant = 0;
+            let professionStats = {};
+            let unitStats = {};
+            let momenStats = { 1: {total:0,compliant:0}, 2: {total:0,compliant:0}, 3: {total:0,compliant:0}, 4: {total:0,compliant:0}, 5: {total:0,compliant:0} };
+
+            qAudits.forEach(audit => {
+              if (!unitStats[audit.unit]) unitStats[audit.unit] = { opportunities: 0, sessions: 0, compliant: 0 };
+              unitStats[audit.unit].sessions++;
+
+              audit.professions.forEach(prof => {
+                if (!professionStats[prof.name]) professionStats[prof.name] = { total: 0, compliant: 0 };
+                prof.opportunities.forEach(opp => {
+                  totalOpportunities++;
+                  unitStats[audit.unit].opportunities++;
+                  const isCompliant = opp.action === 'H.Rub' || opp.action === 'Air M';
+                  if (isCompliant) { totalCompliant++; unitStats[audit.unit].compliant++; }
+                  professionStats[prof.name].total++;
+                  if (isCompliant) professionStats[prof.name].compliant++;
+
+                  // Hitung per momen
+                  const inds = opp.indications || (opp.indication ? [opp.indication] : []);
+                  inds.forEach(m => {
+                    const mNum = parseInt(m);
+                    if (momenStats[mNum]) {
+                      momenStats[mNum].total++;
+                      if (isCompliant) momenStats[mNum].compliant++;
+                    }
+                  });
+                });
+              });
+            });
+
+            const complianceRate = totalOpportunities > 0 ? ((totalCompliant / totalOpportunities) * 100).toFixed(1) : 0;
+            return { totalOpportunities, totalCompliant, complianceRate, professionStats, unitStats, momenStats };
+          };
+
+          const quarterData = groupByQuarter();
+          const sortedQuarters = Object.keys(quarterData).sort().reverse();
+
+          if (sortedQuarters.length === 0) {
+            return (
+              <div className="bg-white rounded-xl shadow-lg p-8 sm:p-12 text-center">
+                <TrendingUp className="w-12 h-12 sm:w-16 sm:h-16 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg sm:text-xl font-semibold text-gray-600 mb-2">Belum Ada Data Audit</h3>
+                <p className="text-sm sm:text-base text-gray-500 mb-6">Mulai dengan menambahkan audit pertama Anda</p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="space-y-6">
+              <div className="bg-white rounded-xl shadow-lg p-4 sm:p-6">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6">📊 Ringkasan Per Triwulan (TW)</h2>
+
+                <div className="space-y-8">
+                  {sortedQuarters.map(qKey => {
+                    const qAudits = quarterData[qKey];
+                    const stats = calculateQuarterStats(qAudits);
+                    const [year, twLabel] = qKey.split('-');
+                    const label = year === 'unknown' ? 'Data Tanggal Tidak Valid' : `${twLabel} Tahun ${year}`;
+
+                    return (
+                      <div key={qKey} className="border-2 border-teal-200 rounded-xl p-4 sm:p-6 hover:border-teal-400 transition-all">
+                        {/* Header TW */}
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <h3 className="text-lg sm:text-xl font-bold text-teal-800">🗓️ {label}</h3>
+                            <p className="text-sm text-gray-600">{qAudits.length} sesi audit</p>
+                          </div>
+                          <div className="text-right">
+                            <div className={`text-2xl sm:text-3xl font-bold ${
+                              stats.complianceRate >= 80 ? 'text-green-600' :
+                              stats.complianceRate >= 60 ? 'text-yellow-600' : 'text-red-600'
+                            }`}>{stats.complianceRate}%</div>
+                            <p className="text-xs text-gray-600">Compliance Rate</p>
+                          </div>
+                        </div>
+
+                        {/* Stat Cards */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+                          <div className="bg-blue-50 rounded-lg p-3">
+                            <p className="text-xs text-blue-600 font-medium">Total Sesi</p>
+                            <p className="text-xl font-bold text-blue-900">{qAudits.length}</p>
+                          </div>
+                          <div className="bg-green-50 rounded-lg p-3">
+                            <p className="text-xs text-green-600 font-medium">Total Peluang</p>
+                            <p className="text-xl font-bold text-green-900">{stats.totalOpportunities}</p>
+                          </div>
+                          <div className="bg-teal-50 rounded-lg p-3">
+                            <p className="text-xs text-teal-600 font-medium">Compliant</p>
+                            <p className="text-xl font-bold text-teal-900">{stats.totalCompliant}</p>
+                          </div>
+                          <div className="bg-red-50 rounded-lg p-3">
+                            <p className="text-xs text-red-600 font-medium">Non-Compliant</p>
+                            <p className="text-xl font-bold text-red-900">{stats.totalOpportunities - stats.totalCompliant}</p>
+                          </div>
+                        </div>
+
+                        {/* 2-column grid: Kepatuhan per Momen | Compliance per Profesi */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+
+                          {/* Kepatuhan per Momen */}
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3">🖐️ Kepatuhan per Momen (5 Moments)</h4>
+                            <div className="space-y-2">
+                              {[1,2,3,4,5].map(m => {
+                                const ms = stats.momenStats[m];
+                                const rate = ms.total > 0 ? ((ms.compliant / ms.total) * 100).toFixed(1) : 0;
+                                return (
+                                  <div key={m}>
+                                    <div className="flex justify-between text-xs mb-1">
+                                      <span className="font-medium text-gray-700">Momen {m}</span>
+                                      <span className="text-gray-600">{rate}% ({ms.compliant}/{ms.total})</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                      <div className={`h-2 rounded-full transition-all ${
+                                        rate >= 80 ? 'bg-green-500' :
+                                        rate >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                                      }`} style={{ width: `${rate}%` }}></div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Compliance per Profesi */}
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3">👥 Compliance per Profesi</h4>
+                            <div className="space-y-2">
+                              {Object.entries(stats.professionStats).map(([name, data]) => {
+                                const rate = data.total > 0 ? ((data.compliant / data.total) * 100).toFixed(1) : 0;
+                                return (
+                                  <div key={name}>
+                                    <div className="flex justify-between text-xs mb-1">
+                                      <span className="font-medium text-gray-700">{name}</span>
+                                      <span className="text-gray-600">{rate}% ({data.compliant}/{data.total})</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                      <div className="bg-gradient-to-r from-teal-400 to-teal-600 h-2 rounded-full transition-all" style={{ width: `${rate}%` }}></div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Tabel Kepatuhan per Momen per Unit */}
+                        <div className="bg-teal-50 rounded-lg p-3">
+                          <h4 className="text-sm font-semibold text-teal-800 mb-3">📋 Rekapan Kepatuhan per Momen per Unit</h4>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="bg-teal-100">
+                                  <th className="text-left p-2 font-semibold text-teal-800">Unit</th>
+                                  <th className="text-center p-2 font-semibold text-teal-800">Sesi</th>
+                                  <th className="text-center p-2 font-semibold text-teal-800">Opp</th>
+                                  <th className="text-center p-2 font-semibold text-teal-800">M1</th>
+                                  <th className="text-center p-2 font-semibold text-teal-800">M2</th>
+                                  <th className="text-center p-2 font-semibold text-teal-800">M3</th>
+                                  <th className="text-center p-2 font-semibold text-teal-800">M4</th>
+                                  <th className="text-center p-2 font-semibold text-teal-800">M5</th>
+                                  <th className="text-center p-2 font-semibold text-teal-800">Total %</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {Object.entries(stats.unitStats).sort((a,b)=>a[0].localeCompare(b[0])).map(([unit, uData]) => {
+                                  // Hitung momen per unit
+                                  const unitMomen = {1:{t:0,c:0},2:{t:0,c:0},3:{t:0,c:0},4:{t:0,c:0},5:{t:0,c:0}};
+                                  qAudits.filter(a=>a.unit===unit).forEach(audit => {
+                                    audit.professions.forEach(prof => {
+                                      prof.opportunities.forEach(opp => {
+                                        const isC = opp.action==='H.Rub'||opp.action==='Air M';
+                                        const inds = opp.indications||(opp.indication?[opp.indication]:[]);
+                                        inds.forEach(m => {
+                                          const mn=parseInt(m);
+                                          if(unitMomen[mn]){unitMomen[mn].t++;if(isC)unitMomen[mn].c++;}
+                                        });
+                                      });
+                                    });
+                                  });
+                                  const totalRate = uData.opportunities > 0 ? ((uData.compliant/uData.opportunities)*100).toFixed(0) : 0;
+                                  return (
+                                    <tr key={unit} className="border-b border-teal-100 hover:bg-teal-50">
+                                      <td className="p-2 font-medium text-gray-700">{unit}</td>
+                                      <td className="p-2 text-center text-gray-600">{uData.sessions}</td>
+                                      <td className="p-2 text-center text-gray-600">{uData.opportunities}</td>
+                                      {[1,2,3,4,5].map(m=>{
+                                        const r=unitMomen[m].t>0?((unitMomen[m].c/unitMomen[m].t)*100).toFixed(0):'-';
+                                        return <td key={m} className={`p-2 text-center font-semibold ${r==='-'?'text-gray-400':r>=80?'text-green-700':r>=60?'text-yellow-700':'text-red-700'}`}>{r}{r!=='-'?'%':''}</td>;
+                                      })}
+                                      <td className={`p-2 text-center font-bold ${totalRate>=80?'text-green-700':totalRate>=60?'text-yellow-700':'text-red-700'}`}>{totalRate}%</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                          <div className="mt-2 text-xs text-gray-500 italic">M1=Sebelum kontak pasien, M2=Sebelum prosedur aseptik, M3=Setelah cairan tubuh, M4=Setelah kontak pasien, M5=Setelah kontak lingkungan</div>
+                        </div>
+
+                        {/* Progress per Unit */}
+                        <div className="mt-4">
+                          <h4 className="text-sm font-semibold text-gray-700 mb-3">📈 Progress Pencapaian per Unit (Target: 200 opp)</h4>
+                          <div className="space-y-2">
+                            {Object.entries(stats.unitStats).map(([unit, data]) => {
+                              const progress = ((data.opportunities / 200) * 100).toFixed(1);
+                              return (
+                                <div key={unit} className="bg-gray-50 rounded-lg p-2">
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="font-medium text-sm text-gray-700">{unit}</span>
+                                    <span className="text-xs text-gray-600">{data.opportunities}/200 ({data.sessions} sesi)</span>
+                                  </div>
+                                  <div className="w-full bg-gray-200 rounded-full h-2">
+                                    <div className={`h-2 rounded-full transition-all ${progress>=100?'bg-green-500':progress>=75?'bg-blue-500':progress>=50?'bg-yellow-500':'bg-orange-500'}`}
+                                      style={{ width: `${Math.min(progress, 100)}%` }}></div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           );
         }
@@ -604,18 +925,33 @@
             let totalOpportunities = 0;
             let totalCompliant = 0;
             let unitStats = {};
+            let professionStats = {};
+            let momenStats = { 1:{total:0,compliant:0}, 2:{total:0,compliant:0}, 3:{total:0,compliant:0}, 4:{total:0,compliant:0}, 5:{total:0,compliant:0} };
 
             monthAudits.forEach(audit => {
               if (!unitStats[audit.unit]) {
-                unitStats[audit.unit] = { opportunities: 0, sessions: 0 };
+                unitStats[audit.unit] = { opportunities: 0, sessions: 0, compliant: 0 };
               }
               unitStats[audit.unit].sessions++;
               
               audit.professions.forEach(prof => {
+                if (!professionStats[prof.name]) professionStats[prof.name] = { total: 0, compliant: 0 };
                 prof.opportunities.forEach(opp => {
                   totalOpportunities++;
                   unitStats[audit.unit].opportunities++;
-                  if (opp.action === 'H.Rub' || opp.action === 'Air M') totalCompliant++;
+                  const isCompliant = opp.action === 'H.Rub' || opp.action === 'Air M';
+                  if (isCompliant) { totalCompliant++; unitStats[audit.unit].compliant++; }
+                  professionStats[prof.name].total++;
+                  if (isCompliant) professionStats[prof.name].compliant++;
+                  // Hitung per momen
+                  const inds = opp.indications || (opp.indication ? [opp.indication] : []);
+                  inds.forEach(m => {
+                    const mNum = parseInt(m);
+                    if (momenStats[mNum]) {
+                      momenStats[mNum].total++;
+                      if (isCompliant) momenStats[mNum].compliant++;
+                    }
+                  });
                 });
               });
             });
@@ -624,7 +960,7 @@
               ? ((totalCompliant / totalOpportunities) * 100).toFixed(1)
               : 0;
 
-            return { totalOpportunities, totalCompliant, complianceRate, unitStats };
+            return { totalOpportunities, totalCompliant, complianceRate, unitStats, professionStats, momenStats };
           };
 
           const monthlyData = groupByMonth();
@@ -686,6 +1022,50 @@
                           <div className="bg-orange-50 rounded-lg p-3">
                             <p className="text-xs text-orange-600 font-medium">Non-Compliant</p>
                             <p className="text-xl font-bold text-orange-900">{stats.totalOpportunities - stats.totalCompliant}</p>
+                          </div>
+                        </div>
+
+                        {/* Rekapan per Momen */}
+                        <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          <div className="bg-indigo-50 rounded-lg p-3">
+                            <h4 className="text-sm font-semibold text-indigo-800 mb-3">🖐️ Kepatuhan per Momen (5 Moments)</h4>
+                            <div className="space-y-2">
+                              {[1,2,3,4,5].map(m => {
+                                const ms = stats.momenStats[m];
+                                const rate = ms.total > 0 ? ((ms.compliant / ms.total) * 100).toFixed(1) : 0;
+                                const mLabel = ['Sebelum kontak pasien','Sebelum prosedur aseptik','Setelah cairan tubuh','Setelah kontak pasien','Setelah kontak lingkungan'][m-1];
+                                return (
+                                  <div key={m}>
+                                    <div className="flex justify-between text-xs mb-1">
+                                      <span className="font-medium text-gray-700">M{m}: {mLabel}</span>
+                                      <span className={`font-semibold ${rate>=80?'text-green-700':rate>=60?'text-yellow-700':'text-red-600'}`}>{rate}% ({ms.compliant}/{ms.total})</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                      <div className={`h-2 rounded-full transition-all ${rate>=80?'bg-green-500':rate>=60?'bg-yellow-500':'bg-red-500'}`} style={{ width: `${rate}%` }}></div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="bg-purple-50 rounded-lg p-3">
+                            <h4 className="text-sm font-semibold text-purple-800 mb-3">👥 Compliance per Profesi</h4>
+                            <div className="space-y-2">
+                              {Object.entries(stats.professionStats).map(([name, data]) => {
+                                const rate = data.total > 0 ? ((data.compliant / data.total) * 100).toFixed(1) : 0;
+                                return (
+                                  <div key={name}>
+                                    <div className="flex justify-between text-xs mb-1">
+                                      <span className="font-medium text-gray-700">{name}</span>
+                                      <span className={`font-semibold ${rate>=80?'text-green-700':rate>=60?'text-yellow-700':'text-red-600'}`}>{rate}% ({data.compliant}/{data.total})</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                      <div className="bg-gradient-to-r from-purple-400 to-purple-600 h-2 rounded-full transition-all" style={{ width: `${rate}%` }}></div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         </div>
 
