@@ -985,6 +985,45 @@
                   {sortedMonths.map(monthYear => {
                     const monthAudits = monthlyData[monthYear];
                     const stats = calculateMonthStats(monthAudits);
+
+                    // ── Hitung notifikasi ketidakpatuhan ──
+                    // 1. Unit yang total kepatuhannya < 80%
+                    const nonCompliantUnits = Object.entries(stats.unitStats)
+                      .filter(([, d]) => d.opportunities > 0 && (d.compliant / d.opportunities) * 100 < 80)
+                      .map(([unit, d]) => ({
+                        unit,
+                        rate: ((d.compliant / d.opportunities) * 100).toFixed(1)
+                      }))
+                      .sort((a, b) => parseFloat(a.rate) - parseFloat(b.rate));
+
+                    // 2. Profesi per unit yang kepatuhannya < 80%
+                    const nonCompliantProfPerUnit = {};
+                    monthAudits.forEach(audit => {
+                      audit.professions.forEach(prof => {
+                        const key = audit.unit;
+                        if (!nonCompliantProfPerUnit[key]) nonCompliantProfPerUnit[key] = {};
+                        if (!nonCompliantProfPerUnit[key][prof.name]) nonCompliantProfPerUnit[key][prof.name] = { total: 0, compliant: 0 };
+                        prof.opportunities.forEach(opp => {
+                          nonCompliantProfPerUnit[key][prof.name].total++;
+                          if (opp.action === 'H.Rub' || opp.action === 'Air M') nonCompliantProfPerUnit[key][prof.name].compliant++;
+                        });
+                      });
+                    });
+                    const profAlerts = [];
+                    Object.entries(nonCompliantProfPerUnit).forEach(([unit, profs]) => {
+                      Object.entries(profs).forEach(([profName, d]) => {
+                        if (d.total > 0 && (d.compliant / d.total) * 100 < 80) {
+                          profAlerts.push({
+                            unit,
+                            prof: profName,
+                            rate: ((d.compliant / d.total) * 100).toFixed(1)
+                          });
+                        }
+                      });
+                    });
+                    profAlerts.sort((a, b) => parseFloat(a.rate) - parseFloat(b.rate));
+
+                    const hasAlerts = nonCompliantUnits.length > 0 || profAlerts.length > 0;
                     
                     return (
                       <div key={monthYear} className="border-2 border-gray-200 rounded-xl p-4 sm:p-6 hover:border-blue-300 transition-all">
@@ -1005,6 +1044,66 @@
                             <p className="text-xs text-gray-600">Compliance</p>
                           </div>
                         </div>
+
+                        {/* ── NOTIFIKASI KETIDAKPATUHAN ── */}
+                        {hasAlerts && (
+                          <div className="mb-4 border border-red-200 bg-red-50 rounded-xl p-3 sm:p-4">
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-lg">⚠️</span>
+                              <h4 className="text-sm sm:text-base font-bold text-red-700">
+                                Peringatan: Unit/Profesi Belum Mencapai Target Kepatuhan (≥80%)
+                              </h4>
+                            </div>
+
+                            {/* Unit tidak patuh */}
+                            {nonCompliantUnits.length > 0 && (
+                              <div className="mb-3">
+                                <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2">🏥 Unit dengan kepatuhan rendah</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {nonCompliantUnits.map(({ unit, rate }) => (
+                                    <div key={unit} className="flex items-center gap-1 bg-white border border-red-300 rounded-lg px-2 py-1 shadow-sm">
+                                      <span className="text-xs font-semibold text-gray-800">{unit}</span>
+                                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                                        parseFloat(rate) >= 60 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                                      }`}>{rate}%</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Profesi per unit tidak patuh */}
+                            {profAlerts.length > 0 && (
+                              <div>
+                                <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2">👤 Profesi per unit dengan kepatuhan rendah</p>
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs border-collapse">
+                                    <thead>
+                                      <tr className="bg-red-100">
+                                        <th className="text-left px-2 py-1.5 font-semibold text-red-800 rounded-tl-lg">Unit</th>
+                                        <th className="text-left px-2 py-1.5 font-semibold text-red-800">Profesi</th>
+                                        <th className="text-center px-2 py-1.5 font-semibold text-red-800 rounded-tr-lg">Kepatuhan</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {profAlerts.map((item, idx) => (
+                                        <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-red-50'}>
+                                          <td className="px-2 py-1.5 text-gray-800 font-medium">{item.unit}</td>
+                                          <td className="px-2 py-1.5 text-gray-700">{item.prof}</td>
+                                          <td className="px-2 py-1.5 text-center">
+                                            <span className={`font-bold px-2 py-0.5 rounded-full ${
+                                              parseFloat(item.rate) >= 60 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                                            }`}>{item.rate}%</span>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
                           <div className="bg-blue-50 rounded-lg p-3">
