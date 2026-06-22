@@ -2473,6 +2473,85 @@
                     .catch(function(err) { console.log('SW registration failed:', err); });
             });
         }
+
+        // ============================================================
+        // PWA INSTALL BUTTON
+        // ============================================================
+        let deferredPrompt = null;
+        const installBtn = document.getElementById('pwa-install-btn');
+
+        window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            deferredPrompt = e;
+            // Tampilkan tombol install
+            if (installBtn) {
+                installBtn.style.display = 'flex';
+            }
+            console.log('Install prompt siap ditampilkan');
+        });
+
+        window.addEventListener('appinstalled', function() {
+            console.log('App berhasil diinstall!');
+            deferredPrompt = null;
+            if (installBtn) {
+                installBtn.style.display = 'none';
+            }
+        });
+
+        function installPWA() {
+            if (!deferredPrompt) {
+                alert('Install tidak tersedia. Pastikan:\n1. Anda menggunakan browser Chrome/Edge\n2. Akses via HTTPS\n3. App belum terinstall sebelumnya');
+                return;
+            }
+            deferredPrompt.prompt();
+            deferredPrompt.userChoice.then(function(choiceResult) {
+                if (choiceResult.outcome === 'accepted') {
+                    console.log('User menerima install');
+                } else {
+                    console.log('User menolak install');
+                }
+                deferredPrompt = null;
+                if (installBtn) {
+                    installBtn.style.display = 'none';
+                }
+            });
+        }
     </script>
+
+    <!-- Tombol Install PWA (muncul otomatis saat browser siap) -->
+    <div id="pwa-install-btn" style="
+        display: none;
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 9999;
+        align-items: center;
+        gap: 8px;
+        background: linear-gradient(135deg, #1e3a8a, #2563eb);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 50px;
+        cursor: pointer;
+        box-shadow: 0 4px 20px rgba(30, 58, 138, 0.5);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        border: none;
+        animation: pulse-install 2s infinite;
+    " onclick="installPWA()">
+        <span style="font-size: 18px;">📲</span>
+        <span>Install App</span>
+    </div>
+
+    <style>
+        @keyframes pulse-install {
+            0%, 100% { transform: scale(1); box-shadow: 0 4px 20px rgba(30,58,138,0.5); }
+            50% { transform: scale(1.04); box-shadow: 0 6px 28px rgba(30,58,138,0.7); }
+        }
+        #pwa-install-btn:hover {
+            background: linear-gradient(135deg, #1e40af, #3b82f6) !important;
+            transform: scale(1.06) !important;
+        }
+    </style>
 </body>
 </html>
