@@ -2475,50 +2475,95 @@
         }
 
         // ============================================================
-        // PWA INSTALL BUTTON
+        // PWA INSTALL BUTTON - IMPROVED
         // ============================================================
         let deferredPrompt = null;
-        const installBtn = document.getElementById('pwa-install-btn');
+        let isInstalled = false;
+
+        function isIOS() {
+            return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        }
+        function isInStandaloneMode() {
+            return window.matchMedia('(display-mode: standalone)').matches
+                || window.navigator.standalone === true;
+        }
+
+        if (isInStandaloneMode()) { isInstalled = true; }
 
         window.addEventListener('beforeinstallprompt', function(e) {
             e.preventDefault();
             deferredPrompt = e;
-            // Tampilkan tombol install
-            if (installBtn) {
-                installBtn.style.display = 'flex';
+            if (!isInstalled) {
+                var btn = document.getElementById('pwa-install-btn');
+                if (btn) btn.style.display = 'flex';
             }
             console.log('Install prompt siap ditampilkan');
         });
 
         window.addEventListener('appinstalled', function() {
             console.log('App berhasil diinstall!');
+            isInstalled = true;
             deferredPrompt = null;
-            if (installBtn) {
-                installBtn.style.display = 'none';
+            var btn = document.getElementById('pwa-install-btn');
+            if (btn) btn.style.display = 'none';
+            hideInstallModal();
+        });
+
+        // Tampilkan tombol untuk iOS (tidak ada beforeinstallprompt)
+        window.addEventListener('load', function() {
+            if (!isInstalled && isIOS() && !isInStandaloneMode()) {
+                var btn = document.getElementById('pwa-install-btn');
+                if (btn) btn.style.display = 'flex';
             }
         });
 
         function installPWA() {
-            if (!deferredPrompt) {
-                alert('Install tidak tersedia. Pastikan:\n1. Anda menggunakan browser Chrome/Edge\n2. Akses via HTTPS\n3. App belum terinstall sebelumnya');
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(function(choiceResult) {
+                    deferredPrompt = null;
+                    var btn = document.getElementById('pwa-install-btn');
+                    if (btn) btn.style.display = 'none';
+                });
                 return;
             }
-            deferredPrompt.prompt();
-            deferredPrompt.userChoice.then(function(choiceResult) {
-                if (choiceResult.outcome === 'accepted') {
-                    console.log('User menerima install');
-                } else {
-                    console.log('User menolak install');
-                }
-                deferredPrompt = null;
-                if (installBtn) {
-                    installBtn.style.display = 'none';
-                }
-            });
+            if (isIOS()) { showInstallModal('ios'); return; }
+            showInstallModal('general');
+        }
+
+        function showInstallModal(type) {
+            var modal = document.getElementById('install-modal');
+            var content = document.getElementById('install-modal-content');
+            if (!modal || !content) return;
+            if (type === 'ios') {
+                content.innerHTML = '<div style="text-align:center;margin-bottom:16px;font-size:28px;">\u{1F4F1}</div>' +
+                    '<h3 style="margin:0 0 12px;font-size:17px;font-weight:700;color:#1e3a8a;">Install di iPhone / iPad</h3>' +
+                    '<p style="margin:0 0 14px;font-size:14px;color:#555;">Ikuti langkah berikut di <strong>Safari</strong>:</p>' +
+                    '<div style="background:#f0f4ff;border-radius:10px;padding:12px;margin-bottom:8px;">' +
+                    '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;"><span style="background:#1e3a8a;color:white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;flex-shrink:0">1</span><span style="font-size:14px;">Tap ikon <strong>Share</strong> &#x2B06;&#xFE0F; di bagian bawah Safari</span></div>' +
+                    '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;"><span style="background:#1e3a8a;color:white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;flex-shrink:0">2</span><span style="font-size:14px;">Scroll ke bawah, pilih <strong>"Add to Home Screen"</strong></span></div>' +
+                    '<div style="display:flex;align-items:flex-start;gap:10px;"><span style="background:#1e3a8a;color:white;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;flex-shrink:0">3</span><span style="font-size:14px;">Tap <strong>"Add"</strong> di pojok kanan atas &#x2705;</span></div>' +
+                    '</div>' +
+                    '<p style="margin:8px 0 0;font-size:12px;color:#888;">Pastikan menggunakan browser <strong>Safari</strong>.</p>';
+            } else {
+                content.innerHTML = '<div style="text-align:center;margin-bottom:16px;font-size:28px;">&#x1F4BB;</div>' +
+                    '<h3 style="margin:0 0 12px;font-size:17px;font-weight:700;color:#1e3a8a;">Install Aplikasi</h3>' +
+                    '<div style="background:#f0f4ff;border-radius:10px;padding:12px;margin-bottom:8px;">' +
+                    '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;"><span style="font-size:18px;">&#x1F310;</span><span style="font-size:14px;">Gunakan browser <strong>Chrome</strong> atau <strong>Edge</strong></span></div>' +
+                    '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;"><span style="font-size:18px;">&#x1F512;</span><span style="font-size:14px;">Akses via <strong>HTTPS</strong></span></div>' +
+                    '<div style="display:flex;align-items:flex-start;gap:10px;"><span style="font-size:18px;">&#x22EE;</span><span style="font-size:14px;">Klik menu browser &#x22EE; &#8594; <strong>"Install App"</strong></span></div>' +
+                    '</div>';
+            }
+            modal.style.display = 'flex';
+        }
+
+        function hideInstallModal() {
+            var modal = document.getElementById('install-modal');
+            if (modal) modal.style.display = 'none';
         }
     </script>
 
-    <!-- Tombol Install PWA (muncul otomatis saat browser siap) -->
+    <!-- Tombol Install PWA -->
     <div id="pwa-install-btn" style="
         display: none;
         position: fixed;
@@ -2539,8 +2584,44 @@
         border: none;
         animation: pulse-install 2s infinite;
     " onclick="installPWA()">
-        <span style="font-size: 18px;">📲</span>
+        <span style="font-size: 18px;">&#x1F4F2;</span>
         <span>Install App</span>
+    </div>
+
+    <!-- Modal panduan install -->
+    <div id="install-modal" style="
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        background: rgba(0,0,0,0.5);
+        align-items: flex-end;
+        justify-content: center;
+        padding: 16px;
+    " onclick="if(event.target===this) hideInstallModal()">
+        <div style="
+            background: white;
+            border-radius: 20px 20px 16px 16px;
+            padding: 24px;
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 -4px 40px rgba(0,0,0,0.2);
+            position: relative;
+        ">
+            <button onclick="hideInstallModal()" style="
+                position: absolute;
+                top: 14px;
+                right: 16px;
+                background: #f0f0f0;
+                border: none;
+                border-radius: 50%;
+                width: 28px;
+                height: 28px;
+                font-size: 16px;
+                cursor: pointer;
+            ">&#x2715;</button>
+            <div id="install-modal-content"></div>
+        </div>
     </div>
 
     <style>
@@ -2551,6 +2632,7 @@
         #pwa-install-btn:hover {
             background: linear-gradient(135deg, #1e40af, #3b82f6) !important;
             transform: scale(1.06) !important;
+            animation: none !important;
         }
     </style>
 </body>
