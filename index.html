@@ -179,7 +179,7 @@
         //   }
         // }
         // ============================================================
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwpZdYsnR0tJjSBzyRtdscRdEZJWMMrxPnci8YJlQxezLmNgTOG97V5i_COv_9Bp1iK/exec';
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbySY0ryUZqReVHhKrSiQkmvr-KhQjawu0h_Rvqne3x-zmTVrSO_UegLZ-CjbIoKKEM/exec';
         
         // Google Sheets API wrapper
         const sheetsAPI = {
@@ -439,7 +439,11 @@
 
               const success = await sheetsAPI.save(auditData);
               if (success) {
-                await loadAudits();
+                // Optimistic update: tambahkan langsung ke state lokal,
+                // TIDAK perlu download ulang SEMUA data dari Google Sheets.
+                // Ini yang bikin "Save" terasa lambat saat data sudah banyak,
+                // karena sebelumnya setiap save = 1x save + 1x load ulang semuanya.
+                setAudits(prev => [auditData, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
                 return true;
               }
               return false;
@@ -459,7 +463,9 @@
               const success = await sheetsAPI.delete(auditId, auditTimestamp);
               if (success) {
                 alert('✅ Data berhasil dihapus!');
-                await loadAudits();
+                // Optimistic update juga di sini: hapus dari state lokal
+                // tanpa perlu reload ulang semua data.
+                setAudits(prev => prev.filter(a => a.id !== auditId));
               }
             } catch (error) {
               console.error('Error deleting audit:', error);
